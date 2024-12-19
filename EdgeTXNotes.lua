@@ -50,6 +50,7 @@ local utf8_map = {
     ["\226\134\150"] = string.char(135),
 }
 
+local sprites = {}
 
 local function createDefaultNotes()
     -- Do not create default files if NOTES dir contains some files
@@ -111,6 +112,211 @@ local function drawHeadLine(txt)
     lcd.drawText(1, 1, txt, INVERS)
 end
 
+Sprite = {}
+Sprite.__index = Sprite
+
+function Sprite:makeData(ascii)
+    local data = {[1]={}}
+    local x=1
+    local y=1
+    local x_max = 0;
+    for line in string.gmatch(ascii, "[^\r\n]+") do
+        for char in string.gmatch(line, "[.RB]") do
+            print("x:"..x.." y:"..y)
+            if char == "R" then
+                data[y][x] = RED
+            end
+            if char == "B" then
+                data[y][x] = BLACK
+            end
+            if char == "." then
+                data[y][x] = WHITE
+            end
+            if x > x_max then
+                x_max = x
+            end
+            x = x + 1
+        end
+        y = y + 1
+        x = 1
+        data[y] = {}
+    end
+
+    self.x = x_max
+    self.y = y -1
+    self.data = data
+end
+
+function Sprite:draw(x_pos, y_pos)
+    for y = 1, self.y, 1 do
+        for x = 1, self.x, 1 do
+            if self.data[y][x] ~= WHITE then
+                lcd.drawPoint(x+x_pos, y+y_pos, self.data[y][x])
+            end
+        end
+    end
+    return self.x, self.y
+end
+
+function Sprite:mirrorY()
+    local data = {}
+    for y = 1, self.y, 1 do
+        data[y] = {}
+        for x = 1, self.x, 1 do
+            data[y][x] = WHITE
+        end
+    end
+
+    for y = 1, self.y, 1 do
+        for x = self.x, 1, -1 do
+            local yn = y
+            local xn = self.x - x + 1
+            print ( x .. "," .. y .. " => " .. xn .. ",".. yn)
+            data[yn][xn] = self.data[y][x]
+        end
+    end
+    self.data = data
+    return self
+end
+
+function Sprite:mirrorX()
+    local data = {}
+    for y = 1, self.y, 1 do
+        data[y] = {}
+        for x = 1, self.x, 1 do
+            data[y][x] = WHITE
+        end
+    end
+
+    for y = self.y, 1, -1 do
+        for x = 1, self.x, 1 do
+            local yn = self.y - y + 1
+            local xn = x
+            print ( x .. "," .. y .. " => " .. xn .. ",".. yn)
+            data[yn][xn] = self.data[y][x]
+        end
+    end
+    self.data = data
+    return self
+end
+
+function Sprite:new(ascii)
+    local o = {}
+    setmetatable(o, self)
+    self.__index = self
+    o:makeData(ascii)
+    return o
+end
+
+
+local function drawSprite(x, y, sprite)
+    local s = Sprite:new(sprite)
+    return s:draw(x,y)
+    -- local y_start = y
+    -- local x_start = x
+    -- local x_max = 0
+    -- for line in string.gmatch(sprite, "[^\r\n]+") do
+    --     for char in string.gmatch(line, "[.RB]") do
+    --         if char == "R" then
+    --             lcd.drawPoint(x, y, RED)
+    --             x = x + 1
+    --         end
+    --         if char == "B" then
+    --             lcd.drawPoint(x, y, BLACK)
+    --             x = x + 1
+    --         end
+    --         if char == "." then
+    --                 x = x + 1
+    --         end
+    --     end
+    --     y = y + 1
+    --     if x > x_max then
+    --         x_max = x
+    --     end
+    --     x = x_start
+    -- end
+    -- return x_max - x_start, y - y_start
+end
+
+local  function drawUTF8(x_pos, y_pos, letter)
+    local utf8_map_lcd = {
+        --[[←]]
+        ["\226\134\144"] = function (x, y) return Sprite:new(arrows_pixmaps["left"]):draw(x,y) end,
+        --[[→]]
+        ["\226\134\146"] = function (x, y) return Sprite:new(arrows_pixmaps["right"]):draw(x,y) end,
+        --[[↑]]
+        ["\226\134\145"] = function (x, y) return Sprite:new(arrows_pixmaps["up"]):draw(x,y) end,
+        --[[↓]]
+        ["\226\134\147"] = function (x, y) return Sprite:new(arrows_pixmaps["down"]):draw(x,y) end,
+        --[[↘]]
+        ["\226\134\152"] = function (x,y ) return Sprite:new(arrows_pixmaps["left"]):draw(x,y) end,
+        --[[↙]]
+        ["\226\134\153"] = function (x, y) return Sprite:new(arrows_pixmaps["left"]):draw(x,y) end,
+        --[[↗]]
+        ["\226\134\151"] = function (x, y) return Sprite:new(arrows_pixmaps["left"]):draw(x,y) end,
+        --[[↖]]
+        ["\226\134\150"] = function (x, y) return Sprite:new(arrows_pixmaps["left"]):draw(x,y) end,
+    }
+
+    if utf8_map_lcd[letter] ~= nil then
+
+        print("call function")
+        return utf8_map_lcd[letter](x_pos, y_pos)
+    end
+    return 0, 0
+end
+
+local function drawLine(x, y, line)
+    local special_char = ""
+    local need_special_char = 0
+    local x_start = x
+    local x_offset = 0
+    local y_offset = 0
+    local y_max = 0
+
+    for c in string.gmatch(line, ".") do
+        if need_special_char > 0 then
+            special_char = special_char .. c
+            need_special_char = need_special_char - 1
+
+            if need_special_char == 0 then
+                x_offset, y_offset = drawUTF8(x, y, special_char)
+
+                if y_offset > y_max then
+                    y_max = y_offset
+                end
+                special_char = ""
+                x = x + x_offset
+            end
+            goto continue
+        end
+        if bit32.band(string.byte(c), 240) == 240 then
+            special_char = special_char .. c
+            need_special_char = 3
+            goto continue
+        end
+        if bit32.band(string.byte(c), 224) == 224 then
+            need_special_char = 2
+            special_char = special_char .. c
+            goto continue
+        end
+        if bit32.band(string.byte(c), 192) == 192 then
+            special_char = special_char .. c
+            need_special_char = 1
+            goto continue
+        end
+
+        local x_offset, y_offset = lcd.sizeText(c)
+        if y_offset > y_max then y_max = y_offset end
+        lcd.drawText(x, y, c)
+        x = x + x_offset
+        -- do something with c
+        ::continue::
+    end
+
+    return x - x_start, y_max
+end
+
 
 local function screenViewFile(file, f)
     if f == nil then
@@ -138,7 +344,7 @@ local function screenViewFile(file, f)
 
     local lines = {}
     for s in string.gmatch(buf, "[^\r\n]+") do
-        s = string.gsub(s, "(\226\134.)", utf8_map) -- replace arrows
+        -- s = string.gsub(s, "(\226\134.)", utf8_map) -- replace arrows
         lines[#lines + 1] = s
     end
 
@@ -154,11 +360,12 @@ local function screenViewFile(file, f)
             local y = self.scroll_y + Y_OFFSET_TITLE + Y_PADDING
             local x = self.scroll_x + X_PADDING
 
+
             lcd.clear()
 
             self.max_x = 0
             for _, line in pairs(self.lines) do
-                lcd.drawText(x, y, line)
+                drawLine(x,y, line)
                 -- Hmmm lcd.sizeText() only for color display?!
                 -- local tmp = lcd.sizeText(line)
                 -- if (tmp > self.max_x) then
@@ -166,6 +373,16 @@ local function screenViewFile(file, f)
                 -- end
                 y = y + Y_OFFSET
             end
+
+            -- drawSprite(x,y, arrows_pixmaps["up"]);
+            --            lcd.drawText(x+20, y, CHAR_DOWN)
+            -- for _, pixmap in pairs(arrows_pixmaps) do
+            --     local xx, _ = drawSprite(x, y , pixmap);
+            --     x = x + xx
+            -- end
+            -- lcd.drawRectangle(x, y, 11, 21)
+            -- lcd.drawFilledCircle(x+5,y+10,3);
+            -- lcd.drawLine(x,y, x+5, y+10, SOLID, BLACK);
 
             drawHeadLine(self.title)
         end,
@@ -188,7 +405,7 @@ local function screenViewFile(file, f)
                     self.scroll_y = self.scroll_y + step
                 end
             else
-                if self.scroll_y > (-1 * #self.lines * Y_OFFSET + LCD_H - Y_OFFSET_TITLE) then
+                if self.scroll_y > (-1 * (#self.lines +100) * Y_OFFSET + LCD_H - Y_OFFSET_TITLE) then
                     -- if self.scroll_y > 0 then
                     self.scroll_y = self.scroll_y + step
                 end
@@ -297,10 +514,111 @@ local function listScreen(files)
     }
 end
 
+local function init_sprites()
+    local arrow_up =
+[[............
+  .....B......
+  ....BBB.....
+  ...BBBBB....
+  ..BBBBBBB...
+  ....BBB.....
+  ....BBB.....
+  ....BBB.....
+  ....BBB.....
+  ............]]
+
+    local arrow_up_right =
+[[....BBBBBBB
+  .....BBBBBB
+  ......BBBBB
+  .....BBBBBB
+  ....BBBBBBB
+  ...BBBB..BB
+  ..BBBB....B
+  ...BB......
+  ...........
+  ...........]]
+
+    local s1 = Sprite:new(arrow_up)
+    sprites["arrow_up"] = s1
+
+    local s2 = Sprite:new(arrow_up)
+    sprites["arrow_down"] = s2
+    sprites["arrow_left"] = Sprite:new(arrow_up):mirrorX()
+    -- sprites["arrow_left"] = Sprite:new(arrow_up):mirrorY()
+    -- sprites["arrow_right"] = Sprite:new(arrow_up):mirrorY()
+
+end
+local arrows_pixmaps = {
+    ["up"] =
+[[............
+  .....B......
+  ....BBB.....
+  ...BBBBB....
+  ..BBBBBBB...
+  ....BBB.....
+  ....BBB.....
+  ....BBB.....
+  ....BBB.....
+  ............]],
+["down"] =
+[[...........
+  ....BBB....
+  ....BBB....
+  ....BBB....
+  ....BBB....
+  ..BBBBBBB..
+  ...BBBBB...
+  ....BBB....
+  .....B.....
+  ...........]],
+["left"] =
+[[.....B.....
+  ....BB.....
+  ...BBB.....
+  ..BBBBBBBB.
+  .BBBBBBBBB.
+  ..BBBBBBBB.
+  ...BBB.....
+  ....BB.....
+  .....B.....
+  ...........]],
+["right"] =
+[[.....B.....
+  .....BB....
+  .....BBB...
+  .BBBBBBBB..
+  .BBBBBBBBB.
+  .BBBBBBBB..
+  .....BBB...
+  .....BB....
+  .....B.....
+  ...........]],
+["up_right"] =
+[[....BBBBBBB
+  .....BBBBBB
+  ......BBBBB
+  .....BBBBBB
+  ....BBBBBBB
+  ...BBBB..BB
+  ..BBBB....B
+  ...BB......
+  ...........
+  ...........]]
+}
+
+
 
 local function init()
+    init_sprites()
     createDefaultNotes()
     ctxScreen = listScreen(readFiles())
+
+    if lcd.sizeText ~= nil then
+        x, Y_OFFSET = lcd.sizeText("O")
+        Y_OFFSET_TITLE = Y_OFFSET + 1
+        print("Osizie:" .. x .. ","..Y_OFFSET)
+    end
 end
 
 local function printEv(ev)
@@ -349,18 +667,47 @@ end
 
 local function run(ev)
 
-    if ev ~= 0 then
-        -- printEv(ev)
-        ctxScreen = ctxScreen:handleEvent(ev)
-    end
+    local w, h
+    local x = 10
+    local y = 10
 
-    if ctxScreen == nil then
-        ctxScreen = listScreen(readFiles())
-    end
+    lcd.clear()
 
-    ctxScreen:draw()
+    local s2 = Sprite:new(arrows_pixmaps["up"])
+    s2:mirrorX()
+    w, h = s2:draw(x,y)
+    lcd.drawRectangle(x-1, y-1, w+2, h+2)
+    x  = x + 20
+
+    w, h = sprites["arrow_up"]:draw(x,y)
+    lcd.drawRectangle(x-1, y-1, w+2, h+2)
+
+    x  = x + 20
+    w, h = sprites["arrow_down"]:draw(x,y)
+    lcd.drawRectangle(x-1, y-1, w+2, h+2)
+
+    -- x  = x + 20
+    -- w, h = sprites["arrow_left"]:draw(x,y)
+    -- lcd.drawRectangle(x-1, y-1, w+2, h+2)
+    --
+    -- x  = x + 20
+    -- w, h = sprites["arrow_right"]:draw(x,y)
+    -- lcd.drawRectangle(x-1, y-1, w+2, h+2)
 
     return 0
+
+    -- if ev ~= 0 then
+    --     printEv(ev)
+    --     ctxScreen = ctxScreen:handleEvent(ev)
+    -- end
+    --
+    -- if ctxScreen == nil then
+    --     ctxScreen = listScreen(readFiles())
+    -- end
+    --
+    -- ctxScreen:draw()
+
+    -- return 0
 end
 
 return {
